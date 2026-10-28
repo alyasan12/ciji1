@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>词记 · 单词过关</title>
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    /* 两块卡片竖向堆叠 */
+    flex-direction: column;
+
+    /* 蓝色渐变背景 */
+    background: linear-gradient(160deg, #1e3a8a 0%, #2563eb 45%, #38bdf8 100%);
+    background-attachment: fixed;
+
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Microsoft YaHei", sans-serif;
+    color: #1f2328;
+  }
+
+  /* 柔光遮罩：避免大面积纯色显得死板 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(255,255,255,.18), transparent 55%),
+      radial-gradient(circle at 80% 80%, rgba(56,189,248,.22), transparent 55%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ---- 左上角 logo ---- */
+  .topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 22px 28px;
+  }
+
+  .logo-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+  }
+
+  .logo-name {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #fff;
+    text-shadow: 0 2px 8px rgba(15, 23, 42, .35);
+  }
+
+  /* ---- 主卡片（比登录页大很多）---- */
+  .card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 820px;
+    margin: 100px 24px 32px;
+    padding: 48px 56px 44px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, .06),
+      0 12px 28px rgba(15, 23, 42, .14),
+      0 32px 72px rgba(15, 23, 42, .22);
+  }
+
+  /* 主卡片顶部一道细高光，提升质感 */
+  .card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);
+    pointer-events: none;
+  }
+
+  /* ---- 上方统计方块（独立卡片，不参与翻页）---- */
+  .card-stats {
+    margin: 100px 24px 16px;      /* 底部 16px 是两块之间的间距 */
+    padding: 22px 28px;
+    border-radius: 16px;
+    max-width: 820px;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, .05),
+      0 8px 20px rgba(15, 23, 42, .12),
+      0 20px 44px rgba(15, 23, 42, .16);
+  }
+
+  /* ---- 顶部统计 ---- */
+  .stats {
+    display: flex;
+    gap: 12px;
+  }
+
+  .stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 12px;
+    background: #f7f9fc;
+    border: 1px solid #eef2f7;
+    border-radius: 12px;
+    text-align: center;
+    transition: background .2s;
+  }
+
+  .stat:hover { background: #f1f5fa; }
+
+  .stat-label {
+    font-size: 12px;
+    color: #94a3b8;
+    letter-spacing: .5px;
+  }
+
+  .stat-value {
+    font-size: 23px;
+    font-weight: 700;
+    color: #1f2328;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    display: inline-block;
+  }
+
+  /* 统计数字更新时的切进效果（幅度加大，看得更清楚）*/
+  @keyframes statPop {
+    0%   { transform: translateY(-16px) scale(.7);  opacity: 0; }
+    55%  { transform: translateY(3px)   scale(1.18); opacity: 1; }
+    78%  { transform: translateY(-1px)  scale(.96); opacity: 1; }
+    100% { transform: translateY(0)     scale(1);   opacity: 1; }
+  }
+
+  .stat-value.bump { animation: statPop .55s cubic-bezier(.34, 1.4, .64, 1) both; }
+
+  .stat-value.good { color: #16a34a; }
+  .stat-value.bad  { color: #dc2626; }
+
+  /* ---- 滑动面板（3D 翻页）---- */
+  .stage {
+    position: relative;
+    overflow: hidden;      /* 关键：滑出屏幕的部分必须被裁掉，否则看不到翻页 */
+    border-radius: 14px;
+    perspective: 1400px;   /* 建立 3D 纵深，让 rotateY 有透视感 */
+  }
+
+  .panel {
+    padding: 4px;
+    border: 2px solid transparent;
+    border-radius: 14px;
+    transition: border-color .3s, box-shadow .3s;
+  }
+
+  /* 答对：绿色荧光
+     多层 box-shadow 由外到内递减透明度，形成向外扩散的光晕；
+     内侧再用 inset 叠一层，做出「由外到内变浅」的渐变感 */
+  .panel.right {
+    border-color: #22c55e;
+    box-shadow:
+      inset 0 0 0 1px rgba(34, 197, 94, .18),
+      inset 0 0 12px rgba(34, 197, 94, .10),
+      0 0 4px  rgba(34, 197, 94, .85),
+      0 0 10px rgba(34, 197, 94, .60),
+      0 0 20px rgba(34, 197, 94, .38),
+      0 0 34px rgba(34, 197, 94, .20),
+      0 0 52px rgba(34, 197, 94, .10);
+    animation: glowGreen 1.5s ease-in-out infinite;
+  }
+
+  @keyframes glowGreen {
+    0%, 100% {
+      box-shadow:
+        inset 0 0 0 1px rgba(34, 197, 94, .18),
+        inset 0 0 12px rgba(34, 197, 94, .10),
+        0 0 4px  rgba(34, 197, 94, .85),
+        0 0 10px rgba(34, 197, 94, .60),
+        0 0 20px rgba(34, 197, 94, .38),
+        0 0 34px rgba(34, 197, 94, .20),
+        0 0 52px rgba(34, 197, 94, .10);
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 1px rgba(34, 197, 94, .26),
+        inset 0 0 16px rgba(34, 197, 94, .16),
+        0 0 6px  rgba(34, 197, 94, 1),
+        0 0 14px rgba(34, 197, 94, .75),
+        0 0 28px rgba(34, 197, 94, .48),
+        0 0 44px rgba(34, 197, 94, .26),
+        0 0 68px rgba(34, 197, 94, .13);
+    }
+  }
+
+  /* 答错：红色荧光 */
+  .panel.wrong {
+    border-color: #ef4444;
+    box-shadow:
+      inset 0 0 0 1px rgba(239, 68, 68, .18),
+      inset 0 0 12px rgba(239, 68, 68, .10),
+      0 0 4px  rgba(239, 68, 68, .85),
+      0 0 10px rgba(239, 68, 68, .60),
+      0 0 20px rgba(239, 68, 68, .38),
+      0 0 34px rgba(239, 68, 68, .20),
+      0 0 52px rgba(239, 68, 68, .10);
+    animation: glowRed .8s ease-in-out infinite;
+  }
+
+  @keyframes glowRed {
+    0%, 100% {
+      box-shadow:
+        inset 0 0 0 1px rgba(239, 68, 68, .18),
+        inset 0 0 12px rgba(239, 68, 68, .10),
+        0 0 4px  rgba(239, 68, 68, .85),
+        0 0 10px rgba(239, 68, 68, .60),
+        0 0 20px rgba(239, 68, 68, .38),
+        0 0 34px rgba(239, 68, 68, .20),
+        0 0 52px rgba(239, 68, 68, .10);
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 1px rgba(239, 68, 68, .28),
+        inset 0 0 18px rgba(239, 68, 68, .18),
+        0 0 7px  rgba(239, 68, 68, 1),
+        0 0 16px rgba(239, 68, 68, .78),
+        0 0 30px rgba(239, 68, 68, .50),
+        0 0 48px rgba(239, 68, 68, .28),
+        0 0 72px rgba(239, 68, 68, .14);
+    }
+  }
+
+  /* 翻页：当前页向左滑出
+     幅度加大（位移更远、旋转更多、缩小更多），让翻页动作看得清 */
+  @keyframes slideOutLeft {
+    0% {
+      transform: translateX(0) rotateY(0deg) scale(1);
+      opacity: 1;
+      filter: blur(0);
+    }
+    35% {
+      /* 先"抬起"一下，形成加速感 */
+      transform: translateX(-28%) rotateY(-10deg) scale(.96);
+      opacity: .92;
+      filter: blur(1px);
+    }
+    100% {
+      transform: translateX(-135%) rotateY(-42deg) scale(.78);
+      opacity: 0;
+      filter: blur(8px);
+    }
+  }
+
+  /* 翻页：新页从右侧滑入 */
+  @keyframes slideInRight {
+    0% {
+      transform: translateX(135%) rotateY(38deg) scale(.78);
+      opacity: 0;
+      filter: blur(8px);
+    }
+    55% {
+      opacity: .9;
+      filter: blur(2px);
+    }
+    100% {
+      transform: translateX(0) rotateY(0deg) scale(1);
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+
+  .panel {
+    transform-origin: center left;   /* 绕左侧轴翻转，更像翻书 */
+    backface-visibility: hidden;
+    will-change: transform, opacity, filter;
+  }
+
+  /* 时长：比之前慢近一倍，动作更从容 */
+  .panel.out { animation: slideOutLeft .75s cubic-bezier(.55, 0, .8, .25) both; }
+  .panel.in  { animation: slideInRight .75s cubic-bezier(.2, .9, .3, 1) both; }
+
+  /* 答错：整块卡片抖动 */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    15%      { transform: translateX(-9px); }
+    30%      { transform: translateX(8px); }
+    45%      { transform: translateX(-6px); }
+    60%      { transform: translateX(5px); }
+    75%      { transform: translateX(-3px); }
+    90%      { transform: translateX(2px); }
+  }
+
+  .card.shake { animation: shake .45s cubic-bezier(.36, .07, .19, .97) both; }
+
+  /* 尊重系统的「减少动态效果」设置 */
+  @media (prefers-reduced-motion: reduce) {
+    .panel.out, .panel.in, .card.shake { animation-duration: .01ms; }
+    .panel.right, .panel.wrong { animation: none; }
+  }
+
+  /* ---- 题目区 ---- */
+  .quiz-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: #94a3b8;
+  }
+
+  /* 标签两侧的细线 */
+  .quiz-label::before,
+  .quiz-label::after {
+    content: '';
+    width: 34px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #dbe2ea);
+  }
+
+  .quiz-label::after {
+    background: linear-gradient(90deg, #dbe2ea, transparent);
+  }
+
+  /* 题面容器：词性 + 中文单词 排在同一行 */
+  .question {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;      /* 按基线对齐，词性和文字底部齐平 */
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 104px;
+    margin-bottom: 22px;
+    text-align: center;
+  }
+
+  /* 中文单词 */
+  .q-word {
+    font-size: 46px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: 2px;
+    color: #0f172a;
+    word-break: break-word;
+  }
+
+  /* 词性：放在单词前面，字号与中文一致，颜色沿用正文色 */
+  .q-pos {
+    font-size: 46px;            /* 和 .q-word 保持一致 */
+    font-weight: 400;           /* 比单词细，避免抢主体 */
+    line-height: 1.25;
+    letter-spacing: 0;
+    color: #0f172a;             /* 和单词同色 */
+    white-space: nowrap;
+  }
+
+  .q-pos:empty { display: none; }
+
+  /* 提示区预留高度，出现时不会把下面的内容顶下去 */
+  .tip-slot {
+    min-height: 0;
+    margin-bottom: 20px;
+    transition: min-height .2s;
+  }
+
+  .hint {
+    margin-bottom: 28px;
+    font-size: 13px;
+    text-align: center;
+    color: #94a3b8;
+  }
+
+  /* ---- 自动提示（首字母）---- */
+  .tip {
+    display: none;
+    margin: 0 0 24px;
+    padding: 16px 20px;
+    text-align: center;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 11px;
+  }
+
+  .tip.show { display: block; }
+
+  /* 首字母独立一行 */
+  .tip .letters {
+    display: block;
+    margin-bottom: 8px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 6px;
+    color: #b45309;
+  }
+
+  /* 说明文字另起一行 */
+  .tip .tip-text {
+    display: block;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #92400e;
+  }
+
+  .hint code {
+    padding: 1px 6px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    color: #475569;
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+
+  /* ---- 输入 ---- */
+  .answer-row {
+    display: flex;
+    gap: 12px;
+  }
+
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 17px 22px;
+    font-size: 21px;
+    font-family: Consolas, "Courier New", monospace;
+    letter-spacing: 1px;
+    color: #1f2328;
+    background: #fbfcfe;
+    border: 2px solid #dde4ed;
+    border-radius: 12px;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s, background .18s;
+  }
+
+  input[type="text"]::placeholder {
+    color: #b6c0cd;
+    letter-spacing: .5px;
+  }
+
+  input[type="text"]:hover:not(:disabled):not(:focus) {
+    border-color: #c8d3e0;
+  }
+
+  input[type="text"]:focus {
+    background: #fff;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, .13);
+  }
+
+  input[type="text"].right {
+    border-color: #16a34a;
+    box-shadow: 0 0 0 4px rgba(22, 163, 74, .13);
+  }
+
+  input[type="text"].wrong {
+    border-color: #dc2626;
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, .13);
+  }
+
+  input[type="text"]:disabled {
+    color: #94a3b8;
+    background: #f8fafc;
+  }
+
+  .btn {
+    flex: none;
+    padding: 0 34px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #fff;
+    background: linear-gradient(180deg, #3b82f6, #2563eb);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, .28);
+    transition: background .18s, box-shadow .18s, transform .08s;
+  }
+
+  .btn:hover {
+    background: linear-gradient(180deg, #2f76e8, #1d4ed8);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, .34);
+  }
+
+  .btn:active {
+    transform: translateY(1px) scale(.985);
+    box-shadow: 0 1px 3px rgba(37, 99, 235, .3);
+  }
+
+  .btn:disabled {
+    background: #cbd5e1;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn.ghost {
+    color: #526075;
+    background: #f4f6f9;
+    border: 1px solid #e4e9f0;
+    box-shadow: none;
+  }
+
+  .btn.ghost:hover {
+    color: #1f2937;
+    background: #eaeef4;
+    box-shadow: none;
+  }
+
+  /* ---- 反馈 ---- */
+  .feedback {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-top: 26px;
+    padding: 17px 22px;
+    font-size: 15px;
+    border-radius: 12px;
+    border-left-width: 4px;
+    border-left-style: solid;
+  }
+
+  .feedback.show {
+    display: flex;
+    animation: fbIn .3s ease-out both;
+  }
+
+  @keyframes fbIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .feedback.ok {
+    color: #14532d;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-left-color: #22c55e;
+  }
+
+  .feedback.no {
+    color: #7f1d1d;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-left-color: #ef4444;
+  }
+
+  .feedback .text {
+    flex: 1;
+    line-height: 1.6;
+  }
+
+  .feedback b {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 16px;
+  }
+
+  /* 反馈里的按钮组 */
+  .fb-actions {
+    flex: none;
+    display: flex;
+    gap: 8px;
+  }
+
+  .fb-actions .btn {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+
+  /* 答对：主按钮绿色 */
+  .feedback.ok .btn:not(.ghost) { background: #16a34a; }
+  .feedback.ok .btn:not(.ghost):hover { background: #15803d; }
+
+  /* 答错：主按钮红色 */
+  .feedback.no .btn:not(.ghost) { background: #dc2626; }
+  .feedback.no .btn:not(.ghost):hover { background: #b91c1c; }
+
+  /* 「跳过」用更中性的样式，避免和「重试」抢注意力 */
+  .feedback.no #skip {
+    color: #991b1b;
+    background: #fff;
+    border: 1px solid #fecaca;
+  }
+
+  .feedback.no #skip:hover { background: #fee2e2; }
+
+  /* ---- 底部操作 ---- */
+  .foot {
+    display: flex;
+    justify-content: space-between;   /* 跳过在左，重新开始在右 */
+    gap: 10px;
+    margin-top: 22px;
+    padding-top: 20px;
+    border-top: 1px solid #eef1f5;
+  }
+
+  .foot .btn { padding: 11px 22px; font-size: 14px; }
+
+  /* 「跳过」用偏暖的色调，和「重新开始」区分开 */
+  #skip {
+    color: #b45309;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+  }
+
+  #skip:hover {
+    color: #92400e;
+    background: #fef3c7;
+  }
+
+  /* ---- 空词库提示 ---- */
+  .empty {
+    display: none;
+    padding: 18px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #7f1d1d;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+  }
+
+  .empty.show { display: block; }
+  .empty code {
+    padding: 1px 6px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    background: #fff;
+    border-radius: 4px;
+  }
+
+  /* ---- 本轮进度：在统计面板里高亮显示 ---- */
+  .stat-round {
+    background: #eef4ff;
+    border-color: #dbe7fe;
+  }
+
+  .stat-round .stat-label { color: #6d8ac0; }
+  .stat-round .stat-value { color: #2563eb; }
+
+  /* ---- 错题本弹窗 ---- */
+  .modal-mask {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    padding: 24px;
+    background: rgba(15, 23, 42, .55);
+    backdrop-filter: blur(3px);
+    overflow-y: auto;
+  }
+
+  .modal-mask.show {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: maskIn .22s ease-out both;
+  }
+
+  @keyframes maskIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 520px;
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    padding: 30px 32px 26px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 24px 64px rgba(15, 23, 42, .38);
+    animation: modalIn .28s cubic-bezier(.2, .9, .3, 1) both;
+  }
+
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(16px) scale(.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .modal-title {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    color: #0f172a;
+  }
+
+  .modal-sub {
+    margin: 0 0 20px;
+    font-size: 13px;
+    text-align: center;
+    color: #94a3b8;
+  }
+
+  /* 错题列表 */
+  .modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin-bottom: 18px;
+    padding: 4px;
+  }
+
+  .wb-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 11px 14px;
+    margin-bottom: 8px;
+    background: #fef2f2;
+    border: 1px solid #fee2e2;
+    border-radius: 10px;
+  }
+
+  .wb-row:last-child { margin-bottom: 0; }
+
+  .wb-pos {
+    flex: none;
+    min-width: 44px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #b91c1c;
+  }
+
+  .wb-en {
+    flex: none;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 17px;
+    font-weight: 700;
+    color: #991b1b;
+  }
+
+  .wb-cn {
+    margin-left: auto;
+    text-align: right;
+    font-size: 14px;
+    color: #475569;
+  }
+
+  /* 全对时的提示 */
+  .wb-perfect {
+    padding: 26px 0;
+    text-align: center;
+    font-size: 15px;
+    color: #16a34a;
+  }
+
+  /* 鼓励语 */
+  .modal-cheer {
+    margin: 0 0 18px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 1px;
+    color: #b45309;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+  }
+
+  .modal-btn {
+    width: 100%;
+    padding: 13px;
+    font-size: 15px;
+  }
+
+  /* 窄屏适配 */
+  @media (max-width: 560px) {
+    .card { margin: 84px 14px 14px; padding: 26px 20px; }
+    .card-stats { margin: 84px 14px 12px; padding: 16px 14px; }
+    .topbar { padding: 16px 18px; }
+
+    /* 字号现在挂在 .q-word 上，词性跟随同样缩小 */
+    .q-word, .q-pos { font-size: 30px; }
+    .question { min-height: 84px; margin-bottom: 18px; gap: 6px; }
+
+    .stats { gap: 6px; }
+    .stat { padding: 9px 4px; }
+    .stat-value { font-size: 16px; }
+    .stat-label { font-size: 10px; }
+
+    .modal { padding: 24px 20px 20px; }
+    .wb-row { flex-wrap: wrap; }
+    .wb-cn { margin-left: 0; width: 100%; text-align: left; }
+
+    .answer-row { flex-direction: column; }
+    .btn { padding: 13px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 左上角 logo -->
+<div class="topbar">
+  <svg class="logo-mark" viewBox="0 0 48 48" fill="none"
+       xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%"   stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#bae6fd"/>
+      </linearGradient>
+    </defs>
+    <path d="M6 10c6-3 12-3 18 1v26c-6-4-12-4-18-1V10z"
+          fill="url(#lg)" opacity=".95"/>
+    <path d="M42 10c-6-3-12-3-18 1v26c6-4 12-4 18-1V10z"
+          fill="url(#lg)" opacity=".62"/>
+    <path d="M24 11v26" stroke="#2563eb" stroke-width="1.6"
+          stroke-linecap="round" opacity=".55"/>
+    <path d="M20 33l4-11 4 11M21.6 29.5h4.8"
+          stroke="#2563eb" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="logo-name">词记</span>
+</div>
+
+<!-- 统计面板（独立白色方块，位于主方块上方）-->
+<div class="card card-stats" id="statsCard">
+  <div class="stats">
+    <div class="stat">
+      <span class="stat-label">已答</span>
+      <span class="stat-value" id="stTotal">0</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">正确</span>
+      <span class="stat-value good" id="stRight">0</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">错误</span>
+      <span class="stat-value bad" id="stWrong">0</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">正确率</span>
+      <span class="stat-value" id="stRate">—</span>
+    </div>
+    <div class="stat stat-round">
+      <span class="stat-label">本轮进度</span>
+      <span class="stat-value" id="stRound">0/10</span>
+    </div>
+  </div>
+</div>
+
+<!-- 主卡片 -->
+<div class="card">
+
+  <!-- 词库缺失提示 -->
+  <div class="empty" id="empty">
+    没有读到词库。本页面的词库已内嵌，出现这个提示说明
+    <code>const WORDS = [...]</code>
+  </div>
+
+  <div id="game">
+
+    <!-- 滑动面板：整块题目区一起做左右平移翻页 -->
+    <div class="stage" id="stage">
+      <div class="panel" id="panel">
+
+        <!-- 题目 -->
+        <div class="quiz-label">请拼写对应的英文单词</div>
+        <div class="question">
+          <span class="q-pos" id="pos"></span>
+          <span class="q-word" id="question">—</span>
+        </div>
+
+        <!-- 自动提示：10 秒无输入后出现 -->
+        <div class="tip-slot">
+          <div class="tip" id="tip"></div>
+        </div>
+
+        <div class="hint">
+          输入英文后按 <code>Enter</code> 提交，不区分大小写
+        </div>
+
+        <!-- 作答 -->
+        <div class="answer-row">
+          <input type="text" id="answer" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 placeholder="在此拼写…">
+          <button type="button" class="btn" id="submit">提交</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 反馈：答对给「下一题」，答错/超时只显示结果提示 -->
+    <div class="feedback" id="feedback">
+      <span class="text" id="fbText"></span>
+      <span class="fb-actions" id="fbActions">
+        <button type="button" class="btn" id="next">下一题</button>
+      </span>
+    </div>
+
+    <!-- 底部：左侧「跳过」，右侧「重新开始」 -->
+    <div class="foot">
+      <button type="button" class="btn ghost" id="skip">跳过</button>
+      <button type="button" class="btn ghost" id="reset">重新开始</button>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- 错题本弹窗：每答满 10 题自动弹出一次 -->
+<div class="modal-mask" id="wrongBook">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wbTitle">
+    <h2 class="modal-title" id="wbTitle">错题本</h2>
+    <p class="modal-sub" id="wbSub">本轮答错的单词</p>
+
+    <div class="modal-body" id="wbList"></div>
+
+    <p class="modal-cheer">不要气馁，继续加油！</p>
+
+    <button type="button" class="btn modal-btn" id="wbClose">继续练习</button>
+  </div>
+</div>
+
+<!-- 词库（已内嵌，无需外部 words.js）-->
+<script>
+/* 词记 · 词库，共 188 条
+   来源：vocabulary of ENG3.docx（Unit 3 / 5 / 6）
+   字段：cn 中文释义 | en 英文单词 | pos 词性
+   想改词库直接编辑下面的数组即可 */
+const WORDS = [
+  { cn: "荷兰", en: "Dutch", pos: "n." },
+  { cn: "颗粒", en: "particle", pos: "n." },
+  { cn: "起因", en: "trigger", pos: "n." },
+  { cn: "精致的", en: "exquisite", pos: "adj." },
+  { cn: "消散", en: "dissipate", pos: "v." },
+  { cn: "密切的", en: "Intimate", pos: "adj." },
+  { cn: "短暂性", en: "Impermanence", pos: "n." },
+  { cn: "唤醒，引起", en: "elicit", pos: "v." },
+  { cn: "短暂", en: "transience", pos: "n." },
+  { cn: "一缕缕的", en: "Wispy", pos: "n." },
+  { cn: "饱受曲折的", en: "beleaguered", pos: "adj." },
+  { cn: "批评家", en: "critics", pos: "n." },
+  { cn: "探险", en: "go on a safari", pos: "phr." },
+  { cn: "远征", en: "expedition", pos: "n." },
+  { cn: "入侵", en: "Invasion", pos: "n." },
+  { cn: "start to do sth. different from usual do", en: "branch out", pos: "phr." },
+  { cn: "工具，媒介", en: "medium", pos: "n." },
+  { cn: "超现实主义", en: "hyper-realism", pos: "n." },
+  { cn: "丙烯酸的", en: "acrylic", pos: "adj." },
+  { cn: "古怪的", en: "weirdly", pos: "adv." },
+  { cn: "由暗致亮", en: "Dark to light", pos: "phr." },
+  { cn: "知觉", en: "perception", pos: "n." },
+  { cn: "嵌入的", en: "embedded", pos: "adj." },
+  { cn: "生态系统", en: "ecosystem", pos: "n." },
+  { cn: "出版", en: "publication", pos: "n." },
+  { cn: "新闻摄影记者", en: "photojournalist", pos: "n." },
+  { cn: "反主流文化的", en: "countercultural", pos: "adj." },
+  { cn: "树脂", en: "resin", pos: "n." },
+  { cn: "泡沫橡胶", en: "loam", pos: "n." },
+  { cn: "拖鞋", en: "slipper", pos: "n." },
+  { cn: "丢弃的", en: "discarded", pos: "adj." },
+  { cn: "与产生共鸣", en: "feel familiar to", pos: "phr." },
+  { cn: "极糟的", en: "egregious", pos: "adj." },
+  { cn: "极度消费主义的", en: "hyper-consumerist", pos: "adj." },
+  { cn: "提取", en: "extraction", pos: "n." },
+  { cn: "贪婪的", en: "rapacious", pos: "adj." },
+  { cn: "被抛弃的物品", en: "castoff", pos: "n." },
+  { cn: "被淹没的", en: "awash", pos: "adj." },
+  { cn: "污染", en: "contaminate", pos: "v." },
+  { cn: "重新利用", en: "Repurpose", pos: "v." },
+  { cn: "引起", en: "dial up", pos: "phr." },
+  { cn: "可穿戴的", en: "wearable", pos: "adj." },
+  { cn: "reveal the truth", en: "speak to", pos: "phr." },
+  { cn: "不足", en: "Paucity", pos: "n." },
+  { cn: "同步地", en: "simultaneously", pos: "adv." },
+  { cn: "人身攻击", en: "Assault", pos: "n." },
+  { cn: "礼仪的", en: "ceremonial", pos: "adj." },
+  { cn: "提拔", en: "elevate", pos: "v." },
+  { cn: "to bring new ideas and energy to sth.", en: "breathe into", pos: "phr." },
+  { cn: "最重要的", en: "Foremost", pos: "adj." },
+  { cn: "入迷的", en: "Entranced", pos: "adj." },
+  { cn: "连接的", en: "Interlocking", pos: "adj." },
+  { cn: "惊叹", en: "marvel at", pos: "phr." },
+  { cn: "折痕", en: "crease", pos: "n." },
+  { cn: "show great surprise", en: "at play", pos: "phr." },
+  { cn: "独立的", en: "detached", pos: "adj." },
+  { cn: "一排", en: "An array of", pos: "phr." },
+  { cn: "非常有趣的", en: "Intriguing", pos: "adj." },
+  { cn: "俯冲", en: "Swoop", pos: "v." },
+  { cn: "双曲线", en: "hyperbolic", pos: "adj." },
+  { cn: "抛物线", en: "paraboloid", pos: "n." },
+  { cn: "拉", en: "tug", pos: "v." },
+  { cn: "污点", en: "speck", pos: "n." },
+  { cn: "鳞片", en: "scales", pos: "n." },
+  { cn: "摩擦力", en: "friction", pos: "n." },
+  { cn: "制造业", en: "Manufacture", pos: "n." },
+  { cn: "highly respect", en: "Venerable", pos: "adj." },
+  { cn: "受尊崇的", en: "revered", pos: "adj." },
+  { cn: "国际知名度", en: "International profile", pos: "phr." },
+  { cn: "连续的", en: "Simultaneously", pos: "adv." },
+  { cn: "前缀", en: "Prefix", pos: "n." },
+  { cn: "模棱两可的", en: "Ambiguous", pos: "adj." },
+  { cn: "双手灵巧的", en: "Ambidextrous", pos: "adj." },
+  { cn: "内向的", en: "Introverted", pos: "adj." },
+  { cn: "外向的", en: "Extroverted", pos: "adj." },
+  { cn: "中间性格的", en: "Ambivert", pos: "adj." },
+  { cn: "两难的", en: "Ambivalent", pos: "adj." },
+  { cn: "名词", en: "Ambience", pos: "n." },
+  { cn: "缺点", en: "Drawback", pos: "n." },
+  { cn: "温馨温暖的", en: "Cozy", pos: "adj." },
+  { cn: "哮喘", en: "Asthma", pos: "n." },
+  { cn: "过敏", en: "Allergy", pos: "n." },
+  { cn: "强烈抵制", en: "Backlash", pos: "n." },
+  { cn: "显然的", en: "Evident", pos: "adj." },
+  { cn: "同化", en: "Assimilate", pos: "v." },
+  { cn: "圆形巨石", en: "Boulders", pos: "n." },
+  { cn: "耐用的", en: "Durable", pos: "adj." },
+  { cn: "发炎的", en: "Inflamed", pos: "adj." },
+  { cn: "牙龈", en: "Gum", pos: "n." },
+  { cn: "化合物", en: "Compound", pos: "n." },
+  { cn: "紧身内衣", en: "Corset", pos: "n." },
+  { cn: "非传统的", en: "Unconventional", pos: "adj." },
+  { cn: "难解之处", en: "Enigma", pos: "n." },
+  { cn: "总计达", en: "Add up to", pos: "phr." },
+  { cn: "蜜蜂", en: "Honeybee", pos: "n." },
+  { cn: "蜂房", en: "Hive", pos: "n." },
+  { cn: "鲱鱼", en: "Herring", pos: "n." },
+  { cn: "协调", en: "Coordinate", pos: "v." },
+  { cn: "certainty", en: "In a flash", pos: "phr." },
+  { cn: "打旋", en: "Swirl", pos: "v." },
+  { cn: "使...中断", en: "Disrupt", pos: "v." },
+  { cn: "假装地", en: "Deceptively", pos: "adv." },
+  { cn: "转向系统", en: "Steering system", pos: "n." },
+  { cn: "描绘", en: "Depict", pos: "v." },
+  { cn: "开动", en: "Set in motion", pos: "phr." },
+  { cn: "描绘", en: "Portary", pos: "v." },
+  { cn: "模仿", en: "Mimic", pos: "v." },
+  { cn: "独自地", en: "Solitary", pos: "adv." },
+  { cn: "高级地", en: "Sophisticated", pos: "adj." },
+  { cn: "反复试验", en: "Trail and terror", pos: "phr." },
+  { cn: "分散的", en: "Decentralized", pos: "adj." },
+  { cn: "平均的", en: "Distributed", pos: "adj." },
+  { cn: "leader", en: "Central agent", pos: "n." },
+  { cn: "put...into practical use", en: "Put in the field", pos: "phr." },
+  { cn: "边缘", en: "Perimeter", pos: "n." },
+  { cn: "入侵者", en: "Intruder", pos: "n." },
+  { cn: "驱赶", en: "Flush out", pos: "phr." },
+  { cn: "危险的", en: "Hazardous", pos: "adj." },
+  { cn: "国境", en: "Border", pos: "n." },
+  { cn: "滑翔机", en: "Glider", pos: "n." },
+  { cn: "无人的", en: "Unmanned", pos: "adj." },
+  { cn: "捕食者（prey n.被捕食者）", en: "Predator", pos: "n." },
+  { cn: "一瞬间", en: "In a flash", pos: "phr." },
+  { cn: "成功因素", en: "Ingredient", pos: "n." },
+  { cn: "简单经验法则", en: "Simple rules of thumb", pos: "n." },
+  { cn: "开辟道路", en: "blazing the trail", pos: "phr." },
+  { cn: "盲目地", en: "slavishly", pos: "adv." },
+  { cn: "时尚的", en: "fads", pos: "n." },
+  { cn: "百科全书", en: "encyclopedia", pos: "n." },
+  { cn: "无缝地", en: "seamlessly", pos: "adv." },
+  { cn: "召集", en: "solicit", pos: "v." },
+  { cn: "忽停忽动的", en: "jerky", pos: "adj." },
+  { cn: "红外线", en: "infrared", pos: "n." },
+  { cn: "相远甚非", en: "a far cry from", pos: "phr." },
+  { cn: "使...担忧的", en: "Fraught", pos: "adj." },
+  { cn: "限制", en: "Constraint", pos: "n." },
+  { cn: "不充分的", en: "Inadequate", pos: "adj." },
+  { cn: "close inspection", en: "Scrutiny", pos: "n." },
+  { cn: "相等的东西", en: "Equivalents", pos: "n." },
+  { cn: "仔细看", en: "Peer", pos: "v." },
+  { cn: "想出", en: "Conceive", pos: "v." },
+  { cn: "典范", en: "Paradigm", pos: "n." },
+  { cn: "连贯的", en: "Coherent", pos: "adj." },
+  { cn: "害怕", en: "Dread", pos: "n." },
+  { cn: "热情友好", en: "Hospitality", pos: "n." },
+  { cn: "刻板印象", en: "Stereotype", pos: "n." },
+  { cn: "质感", en: "Texture", pos: "n." },
+  { cn: "地形,地形学", en: "Topography", pos: "n." },
+  { cn: "are collected", en: "Drawn from", pos: "phr." },
+  { cn: "狂欢作乐", en: "Revelry", pos: "n." },
+  { cn: "充满", en: "Brim with", pos: "phr." },
+  { cn: "increase the volume", en: "Crank up", pos: "phr." },
+  { cn: "立体声", en: "Stereo", pos: "n." },
+  { cn: "immerse...in", en: "Channel", pos: "v." },
+  { cn: "魅力", en: "Enchantment", pos: "n." },
+  { cn: "狂喜", en: "Ecstasy", pos: "n." },
+  { cn: "渗透", en: "Permeate", pos: "v." },
+  { cn: "lens = perspective", en: "Prism", pos: "n." },
+  { cn: "检索", en: "Retrieve", pos: "v." },
+  { cn: "坚忍克己的", en: "Stoic", pos: "adj." },
+  { cn: "舒适温馨的", en: "Cozy", pos: "adj." },
+  { cn: "have gone viral", en: "By storm", pos: "phr." },
+  { cn: "withstand = hold up against", en: "Stand up", pos: "phr." },
+  { cn: "always", en: "Invariably", pos: "adv." },
+  { cn: "be designed specially for", en: "Set aside for", pos: "phr." },
+  { cn: "not at all", en: "Anything but", pos: "phr." },
+  { cn: "微妙地", en: "Subtly", pos: "adv." },
+  { cn: "无意地", en: "unconsciously", pos: "adv." },
+  { cn: "间接的", en: "implicitly", pos: "adv." },
+  { cn: "像素", en: "pixel", pos: "n." },
+  { cn: "一知半解", en: "random smattering", pos: "phr." },
+  { cn: "星座", en: "constellation", pos: "n." },
+  { cn: "一系列", en: "a constellation of", pos: "phr." },
+  { cn: "有逻辑的", en: "coherent", pos: "adj." },
+  { cn: "会两种语言的", en: "bilingual", pos: "adj." },
+  { cn: "会多种语言的", en: "multilingual", pos: "adj." },
+  { cn: "想象", en: "conceive", pos: "n." },
+  { cn: "reorganize", en: "reshuffle", pos: "v." },
+  { cn: "studying hard", en: "poring over", pos: "phr." },
+  { cn: "small and hidden space", en: "Nook and crannies", pos: "phr." },
+  { cn: "广阔的", en: "Expansive", pos: "adj." },
+  { cn: "范围", en: "scope", pos: "n." },
+  { cn: "模糊的", en: "Fuzzy", pos: "n." },
+  { cn: "着色的", en: "stained", pos: "adj." },
+  { cn: "分装的", en: "dissected", pos: "adj." },
+  { cn: "仔细查看", en: "scrutinize", pos: "v." },
+  { cn: "怒视", en: "glare", pos: "v." },
+  { cn: "见多识广的", en: "sophisticated", pos: "adj." }
+];
+</script>
+
+<script>
+'use strict';
+
+// ---- 元素 ----
+const elEmpty    = document.getElementById('empty');
+const elGame     = document.getElementById('game');
+const elStatsCard= document.getElementById('statsCard');
+const elQuestion = document.getElementById('question');
+const elPos      = document.getElementById('pos');
+const elAnswer   = document.getElementById('answer');
+const elSubmit   = document.getElementById('submit');
+const elNext     = document.getElementById('next');
+const elSkip     = document.getElementById('skip');
+const elReset    = document.getElementById('reset');
+const elFeedback = document.getElementById('feedback');
+const elFbText   = document.getElementById('fbText');
+const elStTotal  = document.getElementById('stTotal');
+const elStRight  = document.getElementById('stRight');
+const elStWrong  = document.getElementById('stWrong');
+const elStRate   = document.getElementById('stRate');
+const elStRound  = document.getElementById('stRound');
+const elTip      = document.getElementById('tip');
+const elPanel    = document.getElementById('panel');
+const elStage    = document.getElementById('stage');
+const elFbActions= document.getElementById('fbActions');
+const elCard     = document.querySelector('.card');
+const elWrongBook= document.getElementById('wrongBook');
+const elWbList   = document.getElementById('wbList');
+const elWbSub    = document.getElementById('wbSub');
+const elWbClose  = document.getElementById('wbClose');
+
+// ---- 状态 ----
+let pool       = [];     // 本轮题目池（洗过牌）
+let index      = 0;      // 当前第几题
+let current    = null;   // 当前题目
+let answered   = false;  // 本题是否已作答（防止重复计分）
+let statTotal  = 0;
+let statRight  = 0;
+let statWrong  = 0;
+
+// ---- 每 10 题为一轮 ----
+const ROUND_SIZE = 10;   // 每轮题数
+let roundCount   = 0;    // 本轮已答几题
+let roundWrong   = [];   // 本轮答错的词条
+let pendingNext  = false; // 错题本关闭后是否需要自动进下一题
+
+// ---- 计时规则 ----
+//   0s  题目出现，开始计时
+//   10s 给出首字母（大写）
+//   20s 仍未答对 -> 记错并自动跳下一题
+const TIP_DELAY     = 10000;  // 首字母提示
+const TIMEOUT_DELAY = 20000;  // 超时判错
+
+// 答对后停留多久才自动翻页（毫秒）
+// 想让结果看得更久就调大，想更快进下一题就调小；
+// 设成 0 表示不自动翻页，必须手动点「下一题」
+const CARD_HOLD_MS = 900;
+
+// 单程翻页动画时长（毫秒），要和 CSS 里 .panel.out / .panel.in 的 animation 时长一致
+const SLIDE_MS = 750;
+let tipTimer      = null;   // 10 秒提示定时器
+let timeoutTimer  = null;   // 20 秒超时定时器
+let tipCount      = 0;      // 本题已提示几个字母
+let usedTip       = false;  // 本题是否用过提示
+let session       = 0;      // 计时轮次，用于作废过期的定时器链
+
+// ---- 工具 ----
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// 比对时忽略大小写、首尾空格，以及词与词之间多余的空格
+function normalize(s) {
+  return String(s).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function updateStats() {
+  const vals = [
+    [elStTotal, statTotal],
+    [elStRight, statRight],
+    [elStWrong, statWrong],
+    [elStRate,  statTotal === 0 ? '—' : Math.round((statRight / statTotal) * 100) + '%'],
+    [elStRound, roundCount + '/' + ROUND_SIZE]
+  ];
+
+  vals.forEach(function (pair) {
+    const el = pair[0];
+    if (!el) return;
+    const next = String(pair[1]);
+    if (el.textContent === next) return;   // 没变就不动，避免无谓闪烁
+
+    el.textContent = next;
+
+    // 切进动画：先移除类并强制重排，保证连续更新也能重新播放
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  });
+}
+
+// ---- 每轮结束：记录进度、必要时弹出错题本 ----
+// 返回 true 表示本轮已满（调用方据此安排「先弹窗再下一题」）
+function countRound(word) {
+  roundCount += 1;
+
+  // 答错/跳过/超时的词都记进错题本（同一个词只记一次）
+  if (word && !roundWrong.some(function (w) { return w.en === word.en; })) {
+    roundWrong.push(word);
+  }
+
+  if (roundCount >= ROUND_SIZE) {
+    // 本轮满了 -> 归零重新计，并再刷新一次界面（让进度显示回到 0/10）
+    roundCount = 0;
+    updateStats();
+    showWrongBook();
+    return true;
+  }
+
+  updateStats();
+  return false;
+}
+
+// ---- 错题本弹窗 ----
+function showWrongBook() {
+  const list = roundWrong.slice();      // 快照，之后清空不影响弹窗内容
+  roundWrong = [];
+
+  elWbList.innerHTML = '';
+
+  if (list.length === 0) {
+    // 一轮全对
+    elWbSub.textContent = '这 ' + ROUND_SIZE + ' 题全部答对';
+    const p = document.createElement('div');
+    p.className = 'wb-perfect';
+    p.textContent = '太棒了，没有错题！';
+    elWbList.appendChild(p);
+  } else {
+    elWbSub.textContent = '这 ' + ROUND_SIZE + ' 题里错了 ' + list.length + ' 个';
+
+    list.forEach(function (w) {
+      const row = document.createElement('div');
+      row.className = 'wb-row';
+
+      const pos = document.createElement('span');
+      pos.className = 'wb-pos';
+      pos.textContent = w.pos || '';
+
+      const en = document.createElement('span');
+      en.className = 'wb-en';
+      en.textContent = String(w.en);
+
+      const cn = document.createElement('span');
+      cn.className = 'wb-cn';
+      cn.textContent = String(w.cn);
+
+      row.appendChild(pos);
+      row.appendChild(en);
+      row.appendChild(cn);
+      elWbList.appendChild(row);
+    });
+  }
+
+  elWrongBook.classList.add('show');
+  elWbClose.focus();
+}
+
+function closeWrongBook() {
+  elWrongBook.classList.remove('show');
+
+  // 若本轮是在答题结束时触发的，关闭后自动进下一题
+  if (pendingNext) {
+    pendingNext = false;
+    nextQuestion(true);
+  } else {
+    elAnswer.focus();
+  }
+}
+
+// ---- 计时逻辑 ----
+//   0s  题目出现
+//   10s 没输入 -> 亮出首字母（大写）
+//   20s 仍未答对 -> 记错 + 自动跳下一题
+function clearTipTimer() {
+  if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+}
+
+function clearTimeoutTimer() {
+  if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+}
+
+function resetTip() {
+  clearTipTimer();
+  tipCount = 0;
+  usedTip = false;
+  elTip.className = 'tip';
+  elTip.innerHTML = '';
+}
+
+// 只把提示条收起来，但保留 tipCount / usedTip 记录
+function hideTip() {
+  elTip.className = 'tip';
+  elTip.innerHTML = '';
+}
+
+// 亮出前 tipCount 个字母，剩下的用下划线占位
+// 揭晓的字母一律转大写（提示首字母大写）
+// mine 是发起这次提示的轮次号；和当前 session 不符说明已过期，直接丢弃
+function showTip(mine) {
+  if (mine !== session) return;          // 计时已被取消的旧回合
+  if (!current || answered) return;
+
+  const word = String(current.en);
+  tipCount = Math.min(tipCount + 1, word.length);
+  usedTip = true;
+
+  // 逐字符生成掩码：
+  //   已揭晓的字母 -> 大写显示
+  //   未揭晓的字母 -> 下划线，字母之间用一个空格拉开
+  //   词间空格     -> 全角空格，形成明显比字母间隔更宽的空档
+  let shown = '';
+  for (let i = 0; i < word.length; i++) {
+    const ch = word[i];
+
+    if (/\s/.test(ch)) {
+      shown += '　';                     // 词与词之间：宽空档
+    } else if (i < tipCount) {
+      shown += ch.toUpperCase();         // 已揭晓 -> 大写
+    } else {
+      shown += '_';                      // 未揭晓
+    }
+  }
+
+  // 只在"非空格"字符之间插一个细空格，让下划线不挤在一起
+  shown = shown.replace(/([^　])(?=[^　])/g, '$1 ');
+
+  elTip.innerHTML =
+    '<span class="letters">' + shown.trim() + '</span>' +
+    '<span class="tip-text">已等待 ' + Math.round(TIP_DELAY / 1000) + ' 秒，'
+    + '先给你开头'
+    + (tipCount > 1 ? ' ' + tipCount + ' 个字母' : '字母')
+    + '　·　' + Math.round(TIMEOUT_DELAY / 1000) + ' 秒未答对将计为错误</span>';
+  elTip.className = 'tip show';
+}
+
+// 开始本题的计时：10 秒提示 + 20 秒超时判错
+function armTip() {
+  resetTip();
+  clearTipTimer();
+  clearTimeoutTimer();
+
+  session += 1;                 // 开启新一轮（作废之前所有在途计时）
+  const mine = session;
+
+  // --- 10 秒：亮出首字母 ---
+  tipTimer = setTimeout(function tick() {
+    if (mine !== session) return;    // 已换题或已作答，丢弃
+
+    // 这 10 秒里用户敲过字就不提示，但仍然继续等
+    if (elAnswer.value.trim() === '') {
+      showTip(mine);
+    }
+  }, TIP_DELAY);
+
+  // --- 20 秒：仍未答对 -> 记错并跳下一题 ---
+  timeoutTimer = setTimeout(function () {
+    if (mine !== session) return;
+    if (answered) return;            // 已经答对/答错了
+    timeUp();
+  }, TIMEOUT_DELAY);
+}
+
+// 停掉全部计时：作废当前轮次，在途的定时器即使触发也会被丢弃
+function stopTip() {
+  session += 1;
+  clearTipTimer();
+  clearTimeoutTimer();
+  hideTip();
+}
+
+// 超时未答对：记错，翻开答案给用户看一眼，然后自动跳下一题
+function timeUp() {
+  if (answered || !current) return;
+  answered = true;
+  stopTip();
+
+  statTotal += 1;
+  statWrong += 1;
+  const roundDone = countRound(current);   // 推进本轮计数，可能触发错题本
+
+  const ans = String(current.en);
+
+  elPanel.classList.add('wrong');      // 红色荧光
+  elAnswer.disabled = true;
+  elSubmit.disabled = true;
+  elFbText.innerHTML = '超过 ' + Math.round(TIMEOUT_DELAY / 1000)
+    + ' 秒未答对，答案是 <b>' + ans + '</b>';
+  elFeedback.className = 'feedback show no';
+  showActions();
+
+  setTimeout(function () {
+    if (roundDone) {
+      pendingNext = true;            // 关掉错题本后再继续
+    } else {
+      nextQuestion(true);
+    }
+  }, CARD_HOLD_MS + 900);
+}
+
+// ---- 出题 ----
+// withSlide=true 时先做向左滑出 + 右侧滑入的翻页动画
+// keepLocked=true 时在翻页结束前不移除 answered 锁（防止连点重复计分）
+function nextQuestion(withSlide, keepLocked) {
+  if (!keepLocked) answered = false;
+  stopTip();                // 作废上一题的提示与超时计时，避免跨题误触
+  elAnswer.value = '';
+  elAnswer.disabled = false;
+  elAnswer.classList.remove('right', 'wrong');
+  elSubmit.disabled = false;
+  elPanel.classList.remove('right', 'wrong');
+  elFeedback.className = 'feedback';
+  elFbText.textContent = '';
+
+  showActions();
+
+  // 一轮答完就重新洗牌，无限刷
+  if (index >= pool.length) {
+    pool = shuffle(pool);
+    index = 0;
+  }
+
+  current = pool[index];
+  index += 1;
+
+  // 立刻切换内容的场合：没有动画时直接显示新题
+  function paint() {
+    elQuestion.textContent = current.cn;
+
+    // 词性可选：没有就留空，样式会把整个徽标隐藏
+    elPos.textContent = current.pos ? String(current.pos) : '';
+
+    answered = false;              // 新题就绪，解除锁定
+    elAnswer.value = '';
+    elAnswer.disabled = false;
+    elSubmit.disabled = false;
+    elAnswer.focus();
+    armTip();
+  }
+
+  if (!withSlide) {
+    paint();
+    return;
+  }
+
+  // ---- 翻页动画 ----
+  // 顺序：旧内容左滑出场 → 换上新题 → 新内容从右滑入场
+  elPanel.classList.add('out');
+
+  // 等旧页滑完再换内容，避免用户看到文字在中途突变
+  setTimeout(function () {
+    elPanel.classList.remove('out');
+    paint();                       // 此刻是"空白页"，换内容用户看不到跳变
+
+    elPanel.classList.add('in');
+    setTimeout(function () {
+      elPanel.classList.remove('in');
+    }, SLIDE_MS);
+
+  }, SLIDE_MS);
+}
+
+// 反馈区只保留「下一题」按钮，这里统一控制显隐
+function showActions() {
+  elNext.style.display = '';
+}
+
+// 卡片抖动一下
+function shakeCard() {
+  elCard.classList.remove('shake');
+  // 强制重排，保证连续答错时动画能重新触发
+  void elCard.offsetWidth;
+  elCard.classList.add('shake');
+  setTimeout(function () { elCard.classList.remove('shake'); }, 500);
+}
+
+// ---- 判分 ----
+function judge() {
+  if (answered || !current) return;
+
+  const input = elAnswer.value;
+  if (!input.trim()) {
+    elAnswer.focus();
+    return;
+  }
+
+  answered = true;
+  stopTip();                // 停止提示计时并收起提示条
+
+  const isRight = normalize(input) === normalize(current.en);
+
+  if (isRight) {
+    // ---- 答对：亮绿光，自动翻页 ----
+    statTotal += 1;
+    statRight += 1;
+    const roundDone = countRound(null);   // 答对不计入错题本
+
+    elAnswer.classList.add('right');
+    elPanel.classList.add('right');      // 绿色荧光
+    elFbText.innerHTML = '答对了！';
+    elFeedback.className = 'feedback show ok';
+    showActions();
+
+    elAnswer.disabled = true;
+    elSubmit.disabled = true;
+    elNext.focus();
+
+    // 略微停顿让绿光被看见，然后自动翻页
+    // 本轮满了：先让错题本弹出来，关掉后再继续
+    if (CARD_HOLD_MS > 0) {
+      setTimeout(function () {
+        if (roundDone) {
+          // 弹窗已由 countRound 弹出，等用户关闭后由 closeWrongBook 推进
+          pendingNext = true;
+        } else {
+          nextQuestion(true);
+        }
+      }, CARD_HOLD_MS);
+    }
+
+  } else {
+    // ---- 答错：抖动 + 红光 + 直接记错并切下一题 ----
+    statTotal += 1;
+    statWrong += 1;
+    const roundDone = countRound(current);
+
+    elPanel.classList.add('wrong');
+    shakeCard();
+
+    elFbText.innerHTML = '答错了，正确答案是 <b>' + current.en + '</b>';
+    elFeedback.className = 'feedback show no';
+    showActions();
+
+    elAnswer.disabled = true;
+    elSubmit.disabled = true;
+
+    // 直接切下一题（先亮一下红光和答案）
+    setTimeout(function () {
+      if (roundDone) {
+        pendingNext = true;      // 关掉错题本后再继续
+      } else {
+        nextQuestion(true);
+      }
+    }, CARD_HOLD_MS + 900);
+  }
+}
+
+// ---- 跳过：直接记错并切下一题 ----
+function skip() {
+  if (answered) return;               // 本题已判过，避免重复计分
+  answered = true;
+  stopTip();
+
+  const ans = current ? String(current.en) : '';
+  const roundDone = countRound(current);
+
+  statTotal += 1;
+  statWrong += 1;
+
+  elPanel.classList.remove('wrong');
+
+  // 本轮满了：先把错题本弹出来，关掉后再翻页
+  if (roundDone) {
+    elFbText.innerHTML = '已跳过，答案是 <b>' + ans + '</b>';
+    elFeedback.className = 'feedback show no';
+    showActions();
+    pendingNext = true;
+    return;
+  }
+
+  // 翻页期间保持 answered=true，防止连点重复计分；
+  // 翻页动画走完后再由 nextQuestion 复位
+  nextQuestion(true, true);
+
+  // 等翻页动画走完再告诉用户答案
+  setTimeout(function () {
+    elFbText.innerHTML = '已跳过，答案是 <b>' + ans + '</b>';
+    elFeedback.className = 'feedback show no';
+    showActions();
+  }, SLIDE_MS * 2);
+}
+
+// ---- 事件 ----
+elSubmit.addEventListener('click', judge);
+
+// 用户开始输入就撤掉已弹出的提示（10 秒提示仍会照常触发）
+elAnswer.addEventListener('input', function () {
+  if (answered) return;
+  if (elAnswer.value.trim() !== '') {
+    hideTip();           // 收起提示条，但保留计时
+  }
+});
+
+// 回车提交
+elAnswer.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  judge();
+});
+
+// 答对/答错后点「下一题」
+elNext.addEventListener('click', function () {
+  nextQuestion(true);
+});
+
+// 左下角「跳过」
+elSkip.addEventListener('click', skip);
+
+// 关闭错题本
+elWbClose.addEventListener('click', closeWrongBook);
+
+// 点击遮罩空白处也能关闭
+elWrongBook.addEventListener('click', function (e) {
+  if (e.target === elWrongBook) closeWrongBook();
+});
+
+// Esc 关闭
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && elWrongBook.classList.contains('show')) {
+    closeWrongBook();
+  }
+});
+
+elReset.addEventListener('click', function () {
+  statTotal = statRight = statWrong = 0;
+  roundCount = 0;
+  roundWrong = [];
+  pendingNext = false;
+  elWrongBook.classList.remove('show');
+  updateStats();
+  start();
+});
+
+// ---- 启动 ----
+function start() {
+  const words = (typeof WORDS !== 'undefined' && Array.isArray(WORDS))
+    ? WORDS.filter(function (w) {
+        return w && typeof w.cn === 'string' && typeof w.en === 'string';
+      })
+    : [];
+
+  if (words.length === 0) {
+    elGame.style.display = 'none';
+    elEmpty.classList.add('show');
+    elStatsCard.style.display = 'none';   // 没词库时统计方块也没意义
+    return;
+  }
+
+  elStatsCard.style.display = '';
+  pool = shuffle(words);
+  index = 0;
+  updateStats();
+  nextQuestion();
+}
+
+start();
+</script>
+
+</body>
+</html>
